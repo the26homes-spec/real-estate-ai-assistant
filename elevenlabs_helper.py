@@ -19,7 +19,10 @@ def generate_speech(text):
     )
 
     filename = f"audio_{hash(text)}.mp3"
-    with open(filename, "wb") as f:
-        f.write(response.content)
-
-    return f"https://{hostname}/{filename}"
+    if response.status_code == 200 and response.content and len(response.content) > 1000:
+        with open(filename, "wb") as f:
+            f.write(response.content)
+        return f"https://{hostname}/{filename}"
+    else:
+        print("❌ Failed to generate audio from ElevenLabs")
+        return None

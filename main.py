@@ -25,7 +25,10 @@ def voice():
     step = calls.get(call_sid, 0)
     if step < len(questions):
         speech_url = generate_speech(questions[step])
-        response.play(speech_url)
+        if speech_url:
+            response.play(speech_url)
+        else:
+            response.say("Sorry, something went wrong. Please try again later.")
         calls[call_sid] = step + 1
     else:
         gather_data = {key: request.form.get(key) for key in request.form}
