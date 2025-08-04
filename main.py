@@ -5,6 +5,11 @@ from elevenlabs import generate, set_api_key
 from twilio.rest import Client
 
 app = Flask(__name__)
+from flask import send_from_directory
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory("static", filename)
 
 # Load API keys from env
 openai.api_key = os.getenv("OPENAI_API_KEY")
