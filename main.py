@@ -1,75 +1,53 @@
 import os
-import logging
 from flask import Flask, request, send_from_directory
 from twilio.twiml.voice_response import VoiceResponse, Play
-from elevenlabs import generate, set_api_key
 import openai
-from dotenv import load_dotenv
+from elevenlabs import generate, set_api_key
 
-# Load .env if running locally
-load_dotenv()
-
-# Setup
-app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
-
-# API keys from environment
+app = Flask(__name__, static_folder="static")
 openai.api_key = os.getenv("OPENAI_API_KEY")
-set_api_key(os.getenv("ELEVEN_API_KEY"))
+set_api_key(os.getenv("ELEVENLABS_API_KEY"))
 
-# Ensure static folder exists
 os.makedirs("static", exist_ok=True)
 
 @app.route("/", methods=["GET"])
-def home():
-    return "✅ Real Estate AI Assistant is Live!"
+def index():
+    return "Real Estate AI Assistant is running."
 
 @app.route("/voice", methods=["POST"])
-def handle_voice():
+def voice():
+    print("📞 Incoming call from:", request.form.get("From"))
+
+    user_input = request.form.get("SpeechResult", "") or ""
+    print("🗣 User said:", user_input)
+
     try:
-        logging.info("📞 Incoming call from: %s", request.form.get("From"))
-
-        # Get voice transcription input (if available)
-        user_input = request.form.get("SpeechResult", "").strip()
-        logging.info("🗣 User said: %s", user_input)
-
-        # Fallback prompt if input is empty
-        if not user_input:
-            user_input = "Hello"
-
-        # OpenAI prompt
-        prompt = f"""You are a friendly real estate rental assistant. 
-A client said: {user_input}
-Reply as a helpful assistant: """
-
-        response = openai.ChatCompletion.create(
+        chat_response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            messages=[
+                {"role": "system", "content": "You are a helpful real estate assistant."},
+                {"role": "user", "content": user_input},
+            ]
         )
-        reply = response["choices"][0]["message"]["content"].strip()
-        logging.info("🤖 GPT reply: %s", reply)
-
-        # Generate voice from reply
-        audio = generate(text=reply, voice="Rachel")  # Or use ID like "EXAVITQu4vr4xnSDxMaL"
-        mp3_path = "static/reply.mp3"
-        with open(mp3_path, "wb") as f:
-            f.write(audio)
-        logging.info("✅ Audio saved at: %s", mp3_path)
-
-        # Respond via Twilio with MP3
-        twiml = VoiceResponse()
-        twiml.play(url=request.url_root + "static/reply.mp3")
-
-        return str(twiml)
-
+        reply_text = chat_response["choices"][0]["message"]["content"]
+        print("🤖 GPT reply:", reply_text)
     except Exception as e:
-        logging.error("❌ Error in /voice: %s", str(e))
-        return str(VoiceResponse().say("Sorry, something went wrong."))
+        reply_text = "Sorry, something went wrong."
+        print("❌ OpenAI error:", e)
+
+    try:
+        audio = generate(text=reply_text, voice="Rachel")
+        with open("static/reply.mp3", "wb") as f:
+            f.write(audio)
+        print("✅ Audio saved at: static/reply.mp3")
+    except Exception as e:
+        print("❌ ElevenLabs error:", e)
+        reply_text = "Sorry, the voice service is unavailable."
+
+    response = VoiceResponse()
+    response.play(url=request.host_url + "static/reply.mp3")
+    return str(response)
 
 @app.route("/static/<path:filename>")
-def serve_static(filename):
+def static_files(filename):
     return send_from_directory("static", filename)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
