@@ -24,5 +24,8 @@ def generate_speech(text):
             f.write(response.content)
         return f"https://{hostname}/{filename}"
     else:
-        print("❌ Failed to generate audio from ElevenLabs")
-        return None
+    print("❌ ElevenLabs Error:")
+    print("Status Code:", response.status_code)
+    print("Response:", response.text)
+    return None
+
