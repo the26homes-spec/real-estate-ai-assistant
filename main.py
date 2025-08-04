@@ -1,4 +1,3 @@
-
 from flask import Flask, request, send_from_directory
 import os
 import time
@@ -8,7 +7,7 @@ from twilio.rest import Client
 
 app = Flask(__name__)
 
-# Serve static files
+# Serve static files like reply.mp3
 @app.route("/static/<path:filename>")
 def static_files(filename):
     return send_from_directory("static", filename)
@@ -32,6 +31,7 @@ def handle_voice():
     print("📞 Incoming call from:", caller)
     print("🗣 User said:", speech_input)
 
+    # Get GPT reply
     try:
         chat_reply = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -43,25 +43,31 @@ def handle_voice():
         print("🤖 GPT reply:", chat_reply)
     except Exception as e:
         print("❌ OpenAI error:", e)
-        return "<Response><Say>Sorry, there was a problem processing your request.</Say></Response>", 200, {"Content-Type": "text/xml"}
+        return "<Response><Say>Sorry, I couldn’t process your request.</Say></Response>", 200, {"Content-Type": "text/xml"}
 
+    # Generate and save voice audio
     try:
         os.makedirs("static", exist_ok=True)
         audio_path = os.path.join("static", "reply.mp3")
+
         audio = generate(text=chat_reply, voice="EXAVITQu4vr4xnSDxMaL")
 
         with open(audio_path, "wb") as f:
             f.write(audio)
+            f.flush()
+            os.fsync(f.fileno())
 
-        print(f"✅ Audio saved at: {audio_path}")
+        print("✅ Audio saved at:", audio_path)
         print("📂 Static folder contains:", os.listdir("static"))
     except Exception as e:
         print("❌ ElevenLabs error:", e)
-        return "<Response><Say>Sorry, voice generation failed.</Say></Response>", 200, {"Content-Type": "text/xml"}
+        return "<Response><Say>Voice generation failed.</Say></Response>", 200, {"Content-Type": "text/xml"}
 
+    # Optional WhatsApp lead alert
     try:
+        body = f"📋 New Rental Lead:\nFrom: {caller}\nUser: {speech_input}\nBot: {chat_reply}"
         twilio_client.messages.create(
-            body=f"📋 New Lead from {caller}\nInput: {speech_input}\nBot: {chat_reply}",
+            body=body,
             from_=f"whatsapp:{TWILIO_WHATSAPP}",
             to=f"whatsapp:{WHATSAPP_TO}"
         )
@@ -69,10 +75,13 @@ def handle_voice():
     except Exception as e:
         print("❌ WhatsApp error:", e)
 
-    time.sleep(1)  # Give file system a moment to flush
+    # Add delay before Twilio fetches MP3
+    time.sleep(2)
 
+    # Respond to Twilio with fallback Say + Play
     response = f"""
     <Response>
+        <Say voice="alice">One moment while I prepare your response.</Say>
         <Play>https://real-estate-ai-assistant-lo9h.onrender.com/static/reply.mp3</Play>
     </Response>
     """
@@ -80,4 +89,4 @@ def handle_voice():
 
 @app.route("/", methods=["GET"])
 def index():
-    return "Real Estate AI Assistant is running!", 200
+    return "✅ Real Estate AI Assistant is running!"
