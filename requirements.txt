@@ -3,3 +3,4 @@ twilio
 openai==0.28
 requests
 python-dotenv
+gunicorn
