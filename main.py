@@ -1,6 +1,6 @@
 
-from flask import Flask, request, send_file
-from twilio.twiml.voice_response import VoiceResponse, Play
+from flask import Flask, request
+from twilio.twiml.voice_response import VoiceResponse
 from elevenlabs_helper import generate_speech
 from utils import summarize_lead_and_send
 
