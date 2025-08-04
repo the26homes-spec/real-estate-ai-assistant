@@ -1,6 +1,6 @@
 
 Flask
 openai
-elevenlabs
+elevenlabs==0.2.26
 twilio
 gunicorn
