@@ -1,4 +1,3 @@
-
 from flask import Flask, request, send_from_directory
 from twilio.twiml.voice_response import VoiceResponse
 from elevenlabs_helper import generate_speech
@@ -7,12 +6,22 @@ import os
 
 app = Flask(__name__)
 calls = {}
+responses = {}
 
 @app.route("/voice", methods=['POST'])
 def voice():
     call_sid = request.form['CallSid']
-    response = VoiceResponse()
+    speech_result = request.form.get("SpeechResult")
+    digits = request.form.get("Digits")
 
+    # Store user response from previous step
+    if call_sid in calls and calls[call_sid] > 0:
+        step = calls[call_sid] - 1
+        if call_sid not in responses:
+            responses[call_sid] = {}
+        responses[call_sid][f"q{step+1}"] = speech_result or digits or "No response"
+
+    # Questions to ask
     questions = [
         "Welcome! Are you calling about renting an apartment? Please say yes or no.",
         "What is your full name?",
@@ -23,18 +32,20 @@ def voice():
     ]
 
     step = calls.get(call_sid, 0)
+    response = VoiceResponse()
+
     if step < len(questions):
         speech_url = generate_speech(questions[step])
-        if speech_url:
-            response.play(speech_url)
-        else:
-            response.say("Sorry, something went wrong. Please try again later.")
+        gather = response.gather(input='speech dtmf', timeout=5, num_digits=1, action='/voice', method='POST')
+        gather.play(speech_url)
         calls[call_sid] = step + 1
     else:
-        gather_data = {key: request.form.get(key) for key in request.form}
-        summarize_lead_and_send(call_sid, gather_data)
+        # Final step: summarize and clean up
+        summary_data = responses.get(call_sid, {})
+        summarize_lead_and_send(call_sid, summary_data)
         response.say("We have received your information. Goodbye!")
         calls.pop(call_sid, None)
+        responses.pop(call_sid, None)
 
     return str(response)
 
