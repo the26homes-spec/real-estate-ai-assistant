@@ -1,6 +1,5 @@
-
 Flask
-openai
+openai==0.28
 elevenlabs==0.2.26
 twilio
 gunicorn
