@@ -7,7 +7,7 @@ from twilio.rest import Client
 
 app = Flask(__name__)
 
-# Serve static files like reply.mp3
+# Static file route
 @app.route("/static/<path:filename>")
 def static_files(filename):
     return send_from_directory("static", filename)
@@ -31,7 +31,7 @@ def handle_voice():
     print("📞 Incoming call from:", caller)
     print("🗣 User said:", speech_input)
 
-    # Get GPT reply
+    # Generate GPT reply
     try:
         chat_reply = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -45,7 +45,7 @@ def handle_voice():
         print("❌ OpenAI error:", e)
         return "<Response><Say>Sorry, I couldn’t process your request.</Say></Response>", 200, {"Content-Type": "text/xml"}
 
-    # Generate and save voice audio
+    # Generate voice
     try:
         os.makedirs("static", exist_ok=True)
         audio_path = os.path.join("static", "reply.mp3")
@@ -57,28 +57,33 @@ def handle_voice():
             f.flush()
             os.fsync(f.fileno())
 
-        print("✅ Audio saved at:", audio_path)
-        print("📂 Static folder contains:", os.listdir("static"))
+        size = os.path.getsize(audio_path)
+        print("📏 reply.mp3 size:", size, "bytes")
+
+        if size == 0:
+            print("❌ MP3 file is empty — skipping playback")
+            return "<Response><Say>Sorry, the voice response couldn’t be generated.</Say></Response>", 200, {"Content-Type": "text/xml"}
+
     except Exception as e:
         print("❌ ElevenLabs error:", e)
         return "<Response><Say>Voice generation failed.</Say></Response>", 200, {"Content-Type": "text/xml"}
 
-    # Optional WhatsApp lead alert
+    # Send to WhatsApp (optional)
     try:
         body = f"📋 New Rental Lead:\nFrom: {caller}\nUser: {speech_input}\nBot: {chat_reply}"
         twilio_client.messages.create(
             body=body,
-            from_=f"whatsapp:{TWILIO_WHATSAPP}",
+            from_=TWILIO_WHATSAPP,  # already includes whatsapp: prefix in env
             to=f"whatsapp:{WHATSAPP_TO}"
         )
         print("✅ WhatsApp message sent.")
     except Exception as e:
         print("❌ WhatsApp error:", e)
 
-    # Add delay before Twilio fetches MP3
+    # Give filesystem time to flush
     time.sleep(2)
 
-    # Respond to Twilio with fallback Say + Play
+    # Respond to Twilio
     response = f"""
     <Response>
         <Say voice="alice">One moment while I prepare your response.</Say>
