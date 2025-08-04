@@ -1,6 +1,5 @@
-
-Flask
+Flask==2.3.3
 openai==0.28
-elevenlabs==0.2.26
 twilio
-gunicorn
+python-dotenv
+elevenlabs

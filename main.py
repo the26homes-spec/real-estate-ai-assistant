@@ -1,86 +1,75 @@
 import os
-import time
-from flask import Flask, request, send_file
+import logging
+from flask import Flask, request, send_from_directory
 from twilio.twiml.voice_response import VoiceResponse, Play
-from openai import OpenAI
 from elevenlabs import generate, set_api_key
-from twilio.rest import Client
-
-# Load environment variables
+import openai
 from dotenv import load_dotenv
+
+# Load .env if running locally
 load_dotenv()
 
+# Setup
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# Set ElevenLabs and OpenAI API keys
-set_api_key(os.getenv("ELEVENLABS_API_KEY"))
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# API keys from environment
+openai.api_key = os.getenv("OPENAI_API_KEY")
+set_api_key(os.getenv("ELEVEN_API_KEY"))
 
 # Ensure static folder exists
 os.makedirs("static", exist_ok=True)
 
-@app.route("/")
-def index():
-    return "AI Assistant is live!"
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ Real Estate AI Assistant is Live!"
 
 @app.route("/voice", methods=["POST"])
 def handle_voice():
-    from_number = request.form.get("From", "Unknown")
-    print(f"📞 Incoming call from: {from_number}")
-
-    # Get transcription or fallback
-    user_input = request.form.get("SpeechResult", "")
-    print(f"🗣 User said: {user_input}")
-
-    if not user_input.strip():
-        user_input = "Hello, I'd like help finding an apartment."
-
-    # Generate GPT response
-    chat_reply = openai_client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You're a real estate assistant helping users find rental apartments."},
-            {"role": "user", "content": user_input}
-        ]
-    ).choices[0].message.content
-
-    print(f"🤖 GPT reply: {chat_reply}")
-
-    # Generate voice from ElevenLabs
-    audio = generate(text=chat_reply, voice="EXAVITQu4vr4xnSDxMaL")  # Rachel
-
-    audio_path = os.path.join("static", "reply.mp3")
-    with open(audio_path, "wb") as f:
-        f.write(audio)
-        f.flush()
-        os.fsync(f.fileno())
-
-    time.sleep(1.5)  # Ensure file is fully written
-
-    print(f"📏 reply.mp3 size: {os.path.getsize(audio_path)} bytes")
-
-    # Send WhatsApp lead (optional)
     try:
-        twilio_client = Client(os.getenv("TWILIO_SID"), os.getenv("TWILIO_AUTH"))
-        twilio_client.messages.create(
-            body=f"New lead from {from_number}\nMessage: {user_input}",
-            from_=os.getenv("TWILIO_WHATSAPP"),
-            to=os.getenv("MY_WHATSAPP")
+        logging.info("📞 Incoming call from: %s", request.form.get("From"))
+
+        # Get voice transcription input (if available)
+        user_input = request.form.get("SpeechResult", "").strip()
+        logging.info("🗣 User said: %s", user_input)
+
+        # Fallback prompt if input is empty
+        if not user_input:
+            user_input = "Hello"
+
+        # OpenAI prompt
+        prompt = f"""You are a friendly real estate rental assistant. 
+A client said: {user_input}
+Reply as a helpful assistant: """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
         )
+        reply = response["choices"][0]["message"]["content"].strip()
+        logging.info("🤖 GPT reply: %s", reply)
+
+        # Generate voice from reply
+        audio = generate(text=reply, voice="Rachel")  # Or use ID like "EXAVITQu4vr4xnSDxMaL"
+        mp3_path = "static/reply.mp3"
+        with open(mp3_path, "wb") as f:
+            f.write(audio)
+        logging.info("✅ Audio saved at: %s", mp3_path)
+
+        # Respond via Twilio with MP3
+        twiml = VoiceResponse()
+        twiml.play(url=request.url_root + "static/reply.mp3")
+
+        return str(twiml)
+
     except Exception as e:
-        print(f"❌ WhatsApp error: {e}")
+        logging.error("❌ Error in /voice: %s", str(e))
+        return str(VoiceResponse().say("Sorry, something went wrong."))
 
-    # Respond with TwiML to play audio
-    response = VoiceResponse()
-    response.play(url=f"{request.host_url}static/reply.mp3")
-    return str(response)
-
-@app.route("/static/reply.mp3")
-def serve_audio():
-    audio_path = os.path.join("static", "reply.mp3")
-    if os.path.exists(audio_path):
-        return send_file(audio_path, mimetype="audio/mpeg", as_attachment=False)
-    return "File not found", 404
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory("static", filename)
 
 if __name__ == "__main__":
-    app.run(debug=True, port=10000)
+    app.run(host="0.0.0.0", port=10000)
