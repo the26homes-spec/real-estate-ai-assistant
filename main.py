@@ -1,97 +1,86 @@
-from flask import Flask, request, send_from_directory
 import os
 import time
-import openai
+from flask import Flask, request, send_file
+from twilio.twiml.voice_response import VoiceResponse, Play
+from openai import OpenAI
 from elevenlabs import generate, set_api_key
 from twilio.rest import Client
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 app = Flask(__name__)
 
-# Static file route
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory("static", filename)
-
-# Load environment variables
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Set ElevenLabs and OpenAI API keys
 set_api_key(os.getenv("ELEVENLABS_API_KEY"))
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP = os.getenv("TWILIO_WHATSAPP_NUMBER")
-WHATSAPP_TO = os.getenv("WHATSAPP_TO")
+# Ensure static folder exists
+os.makedirs("static", exist_ok=True)
 
-twilio_client = Client(TWILIO_SID, TWILIO_AUTH)
+@app.route("/")
+def index():
+    return "AI Assistant is live!"
 
 @app.route("/voice", methods=["POST"])
 def handle_voice():
-    caller = request.form.get("From")
-    speech_input = request.form.get("SpeechResult", "")
+    from_number = request.form.get("From", "Unknown")
+    print(f"📞 Incoming call from: {from_number}")
 
-    print("📞 Incoming call from:", caller)
-    print("🗣 User said:", speech_input)
+    # Get transcription or fallback
+    user_input = request.form.get("SpeechResult", "")
+    print(f"🗣 User said: {user_input}")
 
-    # Generate GPT reply
+    if not user_input.strip():
+        user_input = "Hello, I'd like help finding an apartment."
+
+    # Generate GPT response
+    chat_reply = openai_client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You're a real estate assistant helping users find rental apartments."},
+            {"role": "user", "content": user_input}
+        ]
+    ).choices[0].message.content
+
+    print(f"🤖 GPT reply: {chat_reply}")
+
+    # Generate voice from ElevenLabs
+    audio = generate(text=chat_reply, voice="EXAVITQu4vr4xnSDxMaL")  # Rachel
+
+    audio_path = os.path.join("static", "reply.mp3")
+    with open(audio_path, "wb") as f:
+        f.write(audio)
+        f.flush()
+        os.fsync(f.fileno())
+
+    time.sleep(1.5)  # Ensure file is fully written
+
+    print(f"📏 reply.mp3 size: {os.path.getsize(audio_path)} bytes")
+
+    # Send WhatsApp lead (optional)
     try:
-        chat_reply = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You're a friendly real estate assistant. Ask qualifying questions for rentals."},
-                {"role": "user", "content": speech_input}
-            ]
-        )["choices"][0]["message"]["content"]
-        print("🤖 GPT reply:", chat_reply)
-    except Exception as e:
-        print("❌ OpenAI error:", e)
-        return "<Response><Say>Sorry, I couldn’t process your request.</Say></Response>", 200, {"Content-Type": "text/xml"}
-
-    # Generate voice
-    try:
-        os.makedirs("static", exist_ok=True)
-        audio_path = os.path.join("static", "reply.mp3")
-
-        audio = generate(text=chat_reply, voice="EXAVITQu4vr4xnSDxMaL")
-
-        with open(audio_path, "wb") as f:
-            f.write(audio)
-            f.flush()
-            os.fsync(f.fileno())
-
-        size = os.path.getsize(audio_path)
-        print("📏 reply.mp3 size:", size, "bytes")
-
-        if size == 0:
-            print("❌ MP3 file is empty — skipping playback")
-            return "<Response><Say>Sorry, the voice response couldn’t be generated.</Say></Response>", 200, {"Content-Type": "text/xml"}
-
-    except Exception as e:
-        print("❌ ElevenLabs error:", e)
-        return "<Response><Say>Voice generation failed.</Say></Response>", 200, {"Content-Type": "text/xml"}
-
-    # Send to WhatsApp (optional)
-    try:
-        body = f"📋 New Rental Lead:\nFrom: {caller}\nUser: {speech_input}\nBot: {chat_reply}"
+        twilio_client = Client(os.getenv("TWILIO_SID"), os.getenv("TWILIO_AUTH"))
         twilio_client.messages.create(
-            body=body,
-            from_=TWILIO_WHATSAPP,  # already includes whatsapp: prefix in env
-            to=f"whatsapp:{WHATSAPP_TO}"
+            body=f"New lead from {from_number}\nMessage: {user_input}",
+            from_=os.getenv("TWILIO_WHATSAPP"),
+            to=os.getenv("MY_WHATSAPP")
         )
-        print("✅ WhatsApp message sent.")
     except Exception as e:
-        print("❌ WhatsApp error:", e)
+        print(f"❌ WhatsApp error: {e}")
 
-    # Give filesystem time to flush
-    time.sleep(2)
+    # Respond with TwiML to play audio
+    response = VoiceResponse()
+    response.play(url=f"{request.host_url}static/reply.mp3")
+    return str(response)
 
-    # Respond to Twilio
-    response = f"""
-    <Response>
-        <Say voice="alice">One moment while I prepare your response.</Say>
-        <Play>https://real-estate-ai-assistant-lo9h.onrender.com/static/reply.mp3</Play>
-    </Response>
-    """
-    return response, 200, {"Content-Type": "text/xml"}
+@app.route("/static/reply.mp3")
+def serve_audio():
+    audio_path = os.path.join("static", "reply.mp3")
+    if os.path.exists(audio_path):
+        return send_file(audio_path, mimetype="audio/mpeg", as_attachment=False)
+    return "File not found", 404
 
-@app.route("/", methods=["GET"])
-def index():
-    return "✅ Real Estate AI Assistant is running!"
+if __name__ == "__main__":
+    app.run(debug=True, port=10000)
