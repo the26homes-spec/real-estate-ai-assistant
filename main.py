@@ -14,11 +14,15 @@ def voice():
     speech_result = request.form.get("SpeechResult")
     digits = request.form.get("Digits")
 
-    # Store user response from previous step
-    if call_sid in calls and calls[call_sid] > 0:
+    response = VoiceResponse()
+
+    # Initialize responses dict if needed
+    if call_sid not in responses:
+        responses[call_sid] = {}
+
+    # Handle response from previous step
+    if call_sid in calls and calls[call_sid] > 0 and (speech_result or digits):
         step = calls[call_sid] - 1
-        if call_sid not in responses:
-            responses[call_sid] = {}
         responses[call_sid][f"q{step+1}"] = speech_result or digits or "No response"
 
     # Questions to ask
@@ -32,20 +36,30 @@ def voice():
     ]
 
     step = calls.get(call_sid, 0)
-    response = VoiceResponse()
 
-    if step < len(questions):
-        speech_url = generate_speech(questions[step])
-        gather = response.gather(input='speech dtmf', timeout=5, num_digits=1, action='/voice', method='POST')
-        gather.play(speech_url)
-        calls[call_sid] = step + 1
-    else:
-        # Final step: summarize and clean up
-        summary_data = responses.get(call_sid, {})
-        summarize_lead_and_send(call_sid, summary_data)
+    # Handle final step
+    if step >= len(questions):
+        summarize_lead_and_send(call_sid, responses[call_sid])
         response.say("We have received your information. Goodbye!")
         calls.pop(call_sid, None)
         responses.pop(call_sid, None)
+        return str(response)
+
+    # Generate next question audio
+    speech_url = generate_speech(questions[step])
+
+    # Gather for speech or keypad, fallback if no input
+    gather = response.gather(
+        input='speech dtmf',
+        timeout=6,
+        num_digits=1,
+        action='/voice',
+        method='POST'
+    )
+    gather.play(speech_url)
+
+    # Update step for next time
+    calls[call_sid] = step + 1
 
     return str(response)
 
