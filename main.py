@@ -37,8 +37,8 @@ def handle_voice():
         ]
     )["choices"][0]["message"]["content"]
 
-audio = generate(text=chat_reply, voice="EXAVITQu4vr4xnSDxMaL")  # Rachel's voice_id
     os.makedirs("static", exist_ok=True)
+    audio = generate(text=chat_reply, voice="EXAVITQu4vr4xnSDxMaL")  # Rachel's voice ID
     audio_path = "static/reply.mp3"
     with open(audio_path, "wb") as f:
         f.write(audio)
