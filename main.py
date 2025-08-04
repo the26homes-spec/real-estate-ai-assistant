@@ -1,8 +1,9 @@
 
-from flask import Flask, request
+from flask import Flask, request, send_from_directory
 from twilio.twiml.voice_response import VoiceResponse
 from elevenlabs_helper import generate_speech
 from utils import summarize_lead_and_send
+import os
 
 app = Flask(__name__)
 calls = {}
@@ -23,8 +24,8 @@ def voice():
 
     step = calls.get(call_sid, 0)
     if step < len(questions):
-        speech_file = generate_speech(questions[step])
-        response.play(speech_file)
+        speech_url = generate_speech(questions[step])
+        response.play(speech_url)
         calls[call_sid] = step + 1
     else:
         gather_data = {key: request.form.get(key) for key in request.form}
@@ -33,6 +34,10 @@ def voice():
         calls.pop(call_sid, None)
 
     return str(response)
+
+@app.route('/<filename>')
+def serve_audio(filename):
+    return send_from_directory('.', filename)
 
 if __name__ == "__main__":
     app.run(debug=True)

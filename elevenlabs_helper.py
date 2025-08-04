@@ -5,6 +5,7 @@ import os
 def generate_speech(text):
     voice_id = os.getenv("ELEVENLABS_VOICE_ID")
     api_key = os.getenv("ELEVENLABS_API_KEY")
+    hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
@@ -20,4 +21,5 @@ def generate_speech(text):
     filename = f"audio_{hash(text)}.mp3"
     with open(filename, "wb") as f:
         f.write(response.content)
-    return filename
+
+    return f"https://{hostname}/{filename}"
