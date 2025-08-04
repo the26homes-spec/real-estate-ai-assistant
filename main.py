@@ -38,6 +38,7 @@ def handle_voice():
     )["choices"][0]["message"]["content"]
 
     audio = generate(text=chat_reply, voice="Rachel")
+    os.makedirs("static", exist_ok=True)
     audio_path = "static/reply.mp3"
     with open(audio_path, "wb") as f:
         f.write(audio)
@@ -52,9 +53,7 @@ def handle_voice():
 @app.route("/send-lead", methods=["POST"])
 def send_lead():
     data = request.json
-    body = "📋 New Rental Lead:
-
-" + "\n".join([f"{k}: {v}" for k, v in data.items()])
+    body = "📋 New Rental Lead:\n\n" + "\n".join([f"{k}: {v}" for k, v in data.items()])
     twilio_client.messages.create(
         body=body,
         from_=TWILIO_WHATSAPP,
